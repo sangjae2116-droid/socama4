@@ -15,8 +15,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
+
 
       - name: Extract v41
         run: |
@@ -24,95 +26,37 @@ jobs:
           mkdir project
           unzip -q SoulCardMaster4_arm64_port_v41.zip -d project
 
+
       - name: Fix Bitmap API
         run: |
-          sed -i 's/Bitmap.createBitmap(data, 2, w, h, Bitmap.Config.ARGB_8888)/Bitmap.createBitmap(data, 2, w, w, h, Bitmap.Config.ARGB_8888)/' project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
+          sed -i \
+            's/Bitmap.createBitmap(data, 2, w, h, Bitmap.Config.ARGB_8888)/Bitmap.createBitmap(data, 2, w, w, h, Bitmap.Config.ARGB_8888)/' \
+            project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
+
 
       - name: Fetch official 7-Zip LZMA SDK
         run: |
           sudo apt-get update
           sudo apt-get install -y p7zip-full
+
           mkdir -p project/third_party/lzma
 
-          curl -fL https://www.7-zip.org/a/lzma2603.7z -o /tmp/lzma2603.7z
+          curl -fL \
+            https://www.7-zip.org/a/lzma2603.7z \
+            -o /tmp/lzma2603.7z
 
           rm -rf /tmp/lzma2603-sdk
           mkdir -p /tmp/lzma2603-sdk
 
-          7z x -y -o/tmp/lzma2603-sdk /tmp/lzma2603.7z >/dev/null
+          7z x -y \
+            -o/tmp/lzma2603-sdk \
+            /tmp/lzma2603.7z >/dev/null
 
           for f in LzmaDec.c LzmaDec.h 7zTypes.h Precomp.h Compiler.h; do
             test -f "/tmp/lzma2603-sdk/C/$f"
-            cp "/tmp/lzma2603-sdk/C/$f" "project/third_party/lzma/$f"
+            cp \
+              "/tmp/lzma2603-sdk/C/$f" \
+              "project/third_party/lzma/$f"
           done
 
-      - name: Fix Full Native Sources
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root = Path("project/app/src/main/cpp")
-
-          # Fix official 7-Zip ISzAlloc callback signatures.
-          p = root / "scm_lzma_backend.cpp"
-          s = p.read_text()
-
-          s = s.replace(
-              "void *SzAlloc(void *p, size_t size)",
-              "void *SzAlloc(ISzAllocPtr p, size_t size)"
-          )
-
-          s = s.replace(
-              "void SzFree(void *p, void *address)",
-              "void SzFree(ISzAllocPtr p, void *address)"
-          )
-
-          p.write_text(s)
-
-          # Remove duplicate std::string err declaration.
-          p = root / "native_bridge.cpp"
-          s = p.read_text()
-
-          needle = "    std::string err;"
-          first = s.find(needle)
-
-          if first != -1:
-              second = s.find(needle, first + len(needle))
-              if second != -1:
-                  s = s[:second] + s[second + len(needle):]
-
-          p.write_text(s)
-
-          print("Native source fixes applied.")
-          PY
-
-          echo "=== allocator signatures ==="
-          grep -n "SzAlloc\|SzFree" project/app/src/main/cpp/scm_lzma_backend.cpp || true
-
-          echo "=== err declarations ==="
-          grep -n "std::string err" project/app/src/main/cpp/native_bridge.cpp || true
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Install Android SDK
-        run: |
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Build Full ARM64 APK
-        working-directory: project
-        run: |
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-          gradle --no-daemon --stacktrace -PscmPreviewOnly=false assembleDebug
-
-     
+          echo "LZMA
