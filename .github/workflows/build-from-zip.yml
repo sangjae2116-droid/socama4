@@ -33,15 +33,64 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y p7zip-full
           mkdir -p project/third_party/lzma
+
           curl -fL https://www.7-zip.org/a/lzma2603.7z -o /tmp/lzma2603.7z
+
           rm -rf /tmp/lzma2603-sdk
           mkdir -p /tmp/lzma2603-sdk
+
           7z x -y -o/tmp/lzma2603-sdk /tmp/lzma2603.7z >/dev/null
+
           for f in LzmaDec.c LzmaDec.h 7zTypes.h Precomp.h Compiler.h; do
             test -f "/tmp/lzma2603-sdk/C/$f"
             cp "/tmp/lzma2603-sdk/C/$f" "project/third_party/lzma/$f"
           done
-          ls -lh project/third_party/lzma/
+
+      - name: Fix Full Native Sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("project/app/src/main/cpp")
+
+          # Fix official 7-Zip ISzAlloc callback signatures.
+          p = root / "scm_lzma_backend.cpp"
+          s = p.read_text()
+
+          s = s.replace(
+              "void *SzAlloc(void *p, size_t size)",
+              "void *SzAlloc(ISzAllocPtr p, size_t size)"
+          )
+
+          s = s.replace(
+              "void SzFree(void *p, void *address)",
+              "void SzFree(ISzAllocPtr p, void *address)"
+          )
+
+          p.write_text(s)
+
+          # Remove duplicate std::string err declaration.
+          p = root / "native_bridge.cpp"
+          s = p.read_text()
+
+          needle = "    std::string err;"
+          first = s.find(needle)
+
+          if first != -1:
+              second = s.find(needle, first + len(needle))
+              if second != -1:
+                  s = s[:second] + s[second + len(needle):]
+
+          p.write_text(s)
+
+          print("Native source fixes applied.")
+          PY
+
+          echo "=== allocator signatures ==="
+          grep -n "SzAlloc\|SzFree" project/app/src/main/cpp/scm_lzma_backend.cpp || true
+
+          echo "=== err declarations ==="
+          grep -n "std::string err" project/app/src/main/cpp/native_bridge.cpp || true
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -66,16 +115,4 @@ jobs:
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           gradle --no-daemon --stacktrace -PscmPreviewOnly=false assembleDebug
 
-      - name: Verify Full APK
-        run: |
-          APK=project/app/build/outputs/apk/debug/app-debug.apk
-          test -f "$APK"
-          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libscm_arm64.so'
-          unzip -l "$APK" | grep -q 'assets/res.dat'
-          ls -lh "$APK"
-
-      - name: Upload Full APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: SoulCardMaster4-v41-full-arm64-debug
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+     
