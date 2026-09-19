@@ -19,39 +19,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+
       - name: Extract v41
         run: |
           rm -rf project
           mkdir -p project
+
           unzip -q SoulCardMaster4_arm64_port_v41.zip -d project
+
           echo "===== PROJECT ====="
           ls -la project
+
 
       - name: Fix Bitmap API
         run: |
           sed -i 's/Bitmap.createBitmap(data, 2, w, h, Bitmap.Config.ARGB_8888)/Bitmap.createBitmap(data, 2, w, w, h, Bitmap.Config.ARGB_8888)/' \
             project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
 
+          echo "===== BITMAP API ====="
+
           grep -n "createBitmap" \
             project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
+
 
       - name: Fetch LZMA SDK
         run: |
           sudo apt-get update
+
           sudo apt-get install -y p7zip-full
 
           mkdir -p project/third_party/lzma
+
+          echo "===== DOWNLOAD LZMA SDK ====="
 
           curl -fL \
             "https://www.7-zip.org/a/lzma2603.7z" \
             -o /tmp/lzma2603.7z
 
+          echo "===== EXTRACT LZMA SDK ====="
+
           rm -rf /tmp/lzma2603-sdk
+
           mkdir -p /tmp/lzma2603-sdk
 
           7z x -y \
             -o/tmp/lzma2603-sdk \
             /tmp/lzma2603.7z
+
+          echo "===== COPY LZMA FILES ====="
 
           cp /tmp/lzma2603-sdk/C/LzmaDec.c \
             project/third_party/lzma/LzmaDec.c
@@ -68,30 +83,248 @@ jobs:
           cp /tmp/lzma2603-sdk/C/Compiler.h \
             project/third_party/lzma/Compiler.h
 
-          echo "===== LZMA SDK ====="
+          echo "===== LZMA SDK READY ====="
+
           ls -lh project/third_party/lzma
+
 
       - name: Fix Native Sources
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          echo "===== FIX LZMA ALLOCATOR ====="
 
-          root = Path("project/app/src/main/cpp")
+          sed -i \
+            's/void \*SzAlloc(void \*, size_t size)/void *SzAlloc(ISzAllocPtr, size_t size)/' \
+            project/app/src/main/cpp/scm_lzma_backend.cpp
 
-          p = root / "scm_lzma_backend.cpp"
-          s = p.read_text()
+          sed -i \
+            's/void SzFree(void \*, void \*address)/void SzFree(ISzAllocPtr, void *address)/' \
+            project/app/src/main/cpp/scm_lzma_backend.cpp
 
-          s = s.replace(
-              "void *SzAlloc(void *, size_t size)",
-              "void *SzAlloc(ISzAllocPtr, size_t size)"
-          )
+          echo "===== CHECK ALLOCATOR ====="
 
-          s = s.replace(
-              "void SzFree(void *, void *address)",
-              "void SzFree(ISzAllocPtr, void *address)"
-          )
+          grep -n "SzAlloc" \
+            project/app/src/main/cpp/scm_lzma_backend.cpp
 
-          p.write_text(s)
+          grep -n "SzFree" \
+            project/app/src/main/cpp/scm_lzma_backend.cpp
 
-          if "void *SzAlloc(ISzAllocPtr" not in s:
-             
+          echo "===== FIX DUPLICATE ERR ====="
+
+          awk '
+          {
+            if ($0 ~ /^[[:space:]]*std::string err;[[:space:]]*$/) {
+              count++
+              if (count > 1) {
+                next
+              }
+            }
+            print
+          }
+          ' project/app/src/main/cpp/native_bridge.cpp \
+            > /tmp/native_bridge.cpp
+
+          mv /tmp/native_bridge.cpp \
+            project/app/src/main/cpp/native_bridge.cpp
+
+          echo "===== CHECK ERR ====="
+
+          grep -n "std::string err;" \
+            project/app/src/main/cpp/native_bridge.cpp
+
+          echo "===== NATIVE SOURCES READY ====="
+
+
+      - name: Verify Native Sources
+        run: |
+          echo "===== VERIFY SzAlloc SIGNATURE ====="
+
+          grep -q \
+            "void \*SzAlloc(ISzAllocPtr, size_t size)" \
+            project/app/src/main/cpp/scm_lzma_backend.cpp
+
+          echo "SzAlloc OK"
+
+          echo "===== VERIFY SzFree SIGNATURE ====="
+
+          grep -q \
+            "void SzFree(ISzAllocPtr, void \*address)" \
+            project/app/src/main/cpp/scm_lzma_backend.cpp
+
+          echo "SzFree OK"
+
+          echo "===== VERIFY ERR DECLARATION ====="
+
+          ERR_COUNT=$(grep -c \
+            "std::string err;" \
+            project/app/src/main/cpp/native_bridge.cpp || true)
+
+          echo "err count = $ERR_COUNT"
+
+          test "$ERR_COUNT" -eq 1
+
+          echo "===== NATIVE SOURCE VERIFICATION OK ====="
+
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+
+      - name: Setup Android SDK
+        run: |
+          echo "===== FIND SDKMANAGER ====="
+
+          if [ -n "$ANDROID_HOME" ] && \
+             [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          elif [ -n "$ANDROID_SDK_ROOT" ] && \
+               [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+
+            SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
+          elif [ -x "/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
+
+            SDKMANAGER="/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager"
+
+          elif command -v sdkmanager >/dev/null 2>&1; then
+
+            SDKMANAGER="$(command -v sdkmanager)"
+
+          else
+
+            echo "sdkmanager not found"
+
+            exit 1
+
+          fi
+
+          echo "SDKMANAGER=$SDKMANAGER"
+
+          SDK_ROOT="$(dirname "$(dirname "$(dirname "$SDKMANAGER")")")"
+
+          echo "SDK_ROOT=$SDK_ROOT"
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+          echo "===== ACCEPT LICENSES ====="
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          echo "===== INSTALL ANDROID SDK ====="
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.3.13750724"
+
+          echo "===== SDK READY ====="
+
+          echo "===== SDK ROOT ====="
+
+          ls -la "$SDK_ROOT"
+
+          echo "===== NDK ====="
+
+          ls -la "$SDK_ROOT/ndk"
+
+          echo "===== NDK VERSION ====="
+
+          ls -la "$SDK_ROOT/ndk/27.3.13750724"
+
+
+      - name: Build Full ARM64 APK
+        working-directory: project
+        run: |
+          echo "======================================"
+          echo "FULL ARM64 BUILD"
+          echo "======================================"
+
+          echo "===== JAVA ====="
+
+          java -version
+
+          echo "===== GRADLE ====="
+
+          gradle --version
+
+          echo "===== ANDROID HOME ====="
+
+          echo "$ANDROID_HOME"
+
+          echo "===== NDK ====="
+
+          ls -la "$ANDROID_HOME/ndk/27.3.13750724"
+
+          echo "===== BUILD ====="
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            -PscmPreviewOnly=false \
+            assembleDebug
+
+          echo "===== BUILD FINISHED ====="
+
+
+      - name: Verify Full APK
+        working-directory: project
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          echo "======================================"
+          echo "VERIFY FULL APK"
+          echo "======================================"
+
+          echo "===== APK FILE ====="
+
+          test -f "$APK"
+
+          ls -lh "$APK"
+
+          echo "===== ARM64 LIBRARY ====="
+
+          unzip -l "$APK" | grep \
+            "lib/arm64-v8a/libscm_arm64.so"
+
+          echo "===== RES.DAT ====="
+
+          unzip -l "$APK" | grep \
+            "assets/res.dat"
+
+          echo "===== APK CONTENT CHECK ====="
+
+          unzip -l "$APK" | grep \
+            "lib/arm64-v8a/"
+
+          echo "===== SHA256 ====="
+
+          sha256sum "$APK"
+
+          echo "======================================"
+          echo "FULL APK VERIFICATION OK"
+          echo "======================================"
+
+
+      - name: Upload Full ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SoulCardMaster4-v41-full-arm64-debug
+          path: project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
