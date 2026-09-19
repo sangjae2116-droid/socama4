@@ -262,12 +262,16 @@ jobs:
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
           echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
+yes | "$SDKMANAGER" --licenses >/dev/null || true
 
-          "$SDKMANAGER" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+"$SDKMANAGER" \
+  "platform-tools" \
+  "platforms;android-35" \
+  "build-tools;35.0.0" \
+  "ndk;27.3.13750724"
+
+  echo "===== INSTALLED NDK ====="
+ls -la "$SDK_ROOT/ndk" || true
 
           echo "===== ANDROID SDK READY ====="
 
