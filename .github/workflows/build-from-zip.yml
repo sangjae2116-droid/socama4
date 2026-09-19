@@ -1,4 +1,4 @@
-name: Build SoulCardMaster4 v41
+name: Build SoulCardMaster4 v41 Full ARM64
 
 on:
   workflow_dispatch:
@@ -28,6 +28,21 @@ jobs:
         run: |
           sed -i 's/Bitmap.createBitmap(data, 2, w, h, Bitmap.Config.ARGB_8888)/Bitmap.createBitmap(data, 2, w, w, h, Bitmap.Config.ARGB_8888)/' project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
 
+      - name: Fetch official 7-Zip LZMA SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full
+          mkdir -p project/third_party/lzma
+          curl -fL https://www.7-zip.org/a/lzma2603.7z -o /tmp/lzma2603.7z
+          rm -rf /tmp/lzma2603-sdk
+          mkdir -p /tmp/lzma2603-sdk
+          7z x -y -o/tmp/lzma2603-sdk /tmp/lzma2603.7z >/dev/null
+          for f in LzmaDec.c LzmaDec.h 7zTypes.h Precomp.h Compiler.h; do
+            test -f "/tmp/lzma2603-sdk/C/$f"
+            cp "/tmp/lzma2603-sdk/C/$f" "project/third_party/lzma/$f"
+          done
+          ls -lh project/third_party/lzma/
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -45,19 +60,22 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Build APK
+      - name: Build Full ARM64 APK
         working-directory: project
         run: |
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-          gradle --no-daemon --stacktrace assembleDebug
+          gradle --no-daemon --stacktrace -PscmPreviewOnly=false assembleDebug
 
-      - name: Verify APK
+      - name: Verify Full APK
         run: |
-          test -f project/app/build/outputs/apk/debug/app-debug.apk
-          ls -lh project/app/build/outputs/apk/debug/app-debug.apk
+          APK=project/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libscm_arm64.so'
+          unzip -l "$APK" | grep -q 'assets/res.dat'
+          ls -lh "$APK"
 
-      - name: Upload APK
+      - name: Upload Full APK
         uses: actions/upload-artifact@v4
         with:
-          name: SoulCardMaster4-v41-debug
+          name: SoulCardMaster4-v41-full-arm64-debug
           path: project/app/build/outputs/apk/debug/app-debug.apk
