@@ -166,4 +166,95 @@ jobs:
           print("===== native_bridge.cpp err declarations =====")
           for i, line in enumerate(out, 1):
               if "std::string err;" in line:
-                  print(f"{i}: {line
+                  print(f"{i}: {line.rstrip()}")
+
+          if seen == 0:
+              print("WARNING: no std::string err declaration found")
+          else:
+              print(f"Found {seen} err declaration(s); kept first one")
+
+          # ------------------------------------------------------------
+          # Final sanity check.
+          # ------------------------------------------------------------
+
+          s = (root / "scm_lzma_backend.cpp").read_text()
+
+          if "void *SzAlloc(ISzAllocPtr" not in s:
+              raise SystemExit(
+                  "ERROR: final SzAlloc signature is incorrect"
+              )
+
+          if "void SzFree(ISzAllocPtr" not in s:
+              raise SystemExit(
+                  "ERROR: final SzFree signature is incorrect"
+              )
+
+          print("===== FINAL LZMA SIGNATURE CHECK: OK =====")
+
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: |
+          sdkmanager "platforms;android-35" \
+                      "build-tools;35.0.0"
+
+
+      - name: Build Full ARM64 APK
+        working-directory: project
+        run: |
+          echo "===== JAVA ====="
+          java -version
+
+          echo "===== GRADLE ====="
+          gradle --version
+
+          echo "===== BUILD FULL ARM64 ====="
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            -PscmPreviewOnly=false \
+            assembleDebug
+
+
+      - name: Verify Full APK
+        working-directory: project
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          test -f "$APK"
+
+          echo "===== APK ====="
+          ls -lh "$APK"
+
+          echo "===== APK CONTENT CHECK ====="
+          unzip -l "$APK" | grep "lib/arm64-v8a/libscm_arm64.so"
+          unzip -l "$APK" | grep "assets/res.dat"
+
+          echo "===== SHA256 ====="
+          sha256sum "$APK"
+
+          echo "===== FULL APK VERIFICATION: OK ====="
+
+
+      - name: Upload Full ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SoulCardMaster4-v41-full-arm64-debug
+          path: project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
