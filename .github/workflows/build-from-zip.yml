@@ -57,37 +57,37 @@ jobs:
       # 4. Fetch official 7-Zip LZMA SDK
       # ============================================================
 
-      - name: Fetch official 7-Zip LZMA SDK
+            - name: Fetch official 7-Zip LZMA SDK
         run: |
           sudo apt-get update
           sudo apt-get install -y p7zip-full
 
           mkdir -p project/third_party/lzma
 
-          curl -fL \
-            https://www.7-zip.org/a/lzma2603.7z \
+          curl -fL "https://www.7-zip.org/a/lzma2603.7z" \
             -o /tmp/lzma2603.7z
 
           rm -rf /tmp/lzma2603-sdk
           mkdir -p /tmp/lzma2603-sdk
 
-          7z x \
-            -y \
+          7z x -y \
             -o/tmp/lzma2603-sdk \
-            /tmp/lzma2603.7z >/dev/null
+            /tmp/lzma2603.7z
 
-          for f in \
-            LzmaDec.c \
-            LzmaDec.h \
-            7zTypes.h \
-            Precomp.h \
-            Compiler.h
-          do
-            test -f "/tmp/lzma2603-sdk/C/$f"
+          cp /tmp/lzma2603-sdk/C/LzmaDec.c \
+             project/third_party/lzma/LzmaDec.c
 
-            cp \
-              "/tmp/lzma2603-sdk/C/$f" \
-              "project/third_party/lzma/$f"
-          done
+          cp /tmp/lzma2603-sdk/C/LzmaDec.h \
+             project/third_party/lzma/LzmaDec.h
 
-          echo "===== LZMA
+          cp /tmp/lzma2603-sdk/C/7zTypes.h \
+             project/third_party/lzma/7zTypes.h
+
+          cp /tmp/lzma2603-sdk/C/Precomp.h \
+             project/third_party/lzma/Precomp.h
+
+          cp /tmp/lzma2603-sdk/C/Compiler.h \
+             project/third_party/lzma/Compiler.h
+
+          echo "===== LZMA SDK FILES ====="
+          ls -lh project/third_party/lzma
