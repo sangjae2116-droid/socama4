@@ -172,8 +172,12 @@ jobs:
 
           echo "===== FIND SDKMANAGER ====="
 
-          if [ -n "$ANDROID_HOME" ] && \
-             [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+          if [ -x "/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
+
+            SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"
+
+          elif [ -n "$ANDROID_HOME" ] && \
+               [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
 
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
@@ -185,10 +189,6 @@ jobs:
           elif [ -x "/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
 
             SDKMANAGER="/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager"
-
-          elif [ -x "/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
-
-            SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"
 
           elif command -v sdkmanager >/dev/null 2>&1; then
 
@@ -203,9 +203,13 @@ jobs:
 
           echo "SDKMANAGER=$SDKMANAGER"
 
-          SDK_ROOT="$(cd "$(dirname "$SDKMANAGER")/../../../.." && pwd)"
+          echo "===== CALCULATE SDK ROOT ====="
+
+          SDK_ROOT="$(cd "$(dirname "$SDKMANAGER")/../../.." && pwd)"
 
           echo "SDK_ROOT=$SDK_ROOT"
+
+          test -d "$SDK_ROOT"
 
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
@@ -213,7 +217,7 @@ jobs:
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
           echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
-          echo "===== SDK ROOT ====="
+          echo "===== SDK ROOT CONTENTS ====="
 
           ls -la "$SDK_ROOT"
 
@@ -221,7 +225,7 @@ jobs:
 
           yes | "$SDKMANAGER" --licenses >/dev/null || true
 
-          echo "===== INSTALL SDK ====="
+          echo "===== INSTALL ANDROID SDK ====="
 
           "$SDKMANAGER" \
             "platform-tools" \
@@ -231,7 +235,17 @@ jobs:
 
           echo "===== SDK READY ====="
 
+          echo "===== SDK ROOT ====="
+
           ls -la "$SDK_ROOT"
+
+          echo "===== PLATFORM ====="
+
+          ls -la "$SDK_ROOT/platforms"
+
+          echo "===== BUILD TOOLS ====="
+
+          ls -la "$SDK_ROOT/build-tools"
 
           echo "===== NDK ====="
 
@@ -240,6 +254,8 @@ jobs:
           echo "===== NDK VERSION ====="
 
           ls -la "$SDK_ROOT/ndk/27.3.13750724"
+
+          echo "===== SDK SETUP COMPLETE ====="
 
       - name: Build Full ARM64 APK
         working-directory: project
@@ -261,6 +277,10 @@ jobs:
           echo "===== ANDROID SDK ROOT ====="
 
           echo "$ANDROID_SDK_ROOT"
+
+          echo "===== CHECK NDK ====="
+
+          test -d "$ANDROID_HOME/ndk/27.3.13750724"
 
           echo "===== FULL ARM64 BUILD ====="
 
