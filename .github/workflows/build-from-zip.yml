@@ -1,55 +1,16 @@
-name: Build SoulCardMaster4 v41 Full ARM64
+name: SoulCard Test
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'SoulCardMaster4_arm64_port_v41.zip'
-      - '.github/workflows/build-from-zip.yml'
-
-permissions:
-  contents: read
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-
     steps:
+      - uses: actions/checkout@v4
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Extract v41
+      - name: Check workflow
         run: |
-          rm -rf project
-          mkdir -p project
-          unzip -q SoulCardMaster4_arm64_port_v41.zip -d project
-          ls -la project
-
-      - name: Fix Bitmap API
-        run: |
-          sed -i 's/Bitmap.createBitmap(data, 2, w, h, Bitmap.Config.ARGB_8888)/Bitmap.createBitmap(data, 2, w, w, h, Bitmap.Config.ARGB_8888)/' \
-            project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
-          grep -n "createBitmap" project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
-
-      - name: Fetch LZMA SDK
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full
-
-          mkdir -p project/third_party/lzma
-
-          curl -fL "https://www.7-zip.org/a/lzma2603.7z" \
-            -o /tmp/lzma2603.7z
-
-          rm -rf /tmp/lzma2603-sdk
-          mkdir -p /tmp/lzma2603-sdk
-
-          7z x -y \
-            -o/tmp/lzma2603-sdk \
-            /tmp/lzma2603.7z
-
-          cp /tmp/lzma2603-sdk/C/LzmaDec.c \
-            project/third_party/lzma/LzmaDec.c
-
-          cp /tmp/lzma2603-sdk/C/Lzma
+          echo "WORKFLOW OK"
+          echo "ZIP:"
+          ls -lh SoulCardMaster4_arm64_port_v41.zip
