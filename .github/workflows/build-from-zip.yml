@@ -16,9 +16,17 @@ jobs:
 
     steps:
 
+      # ============================================================
+      # 1. Checkout
+      # ============================================================
+
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # ============================================================
+      # 2. Extract v41
+      # ============================================================
 
       - name: Extract v41
         run: |
@@ -26,6 +34,13 @@ jobs:
           mkdir -p project
           unzip -q SoulCardMaster4_arm64_port_v41.zip -d project
 
+          echo "===== PROJECT ROOT ====="
+          ls -la project
+
+
+      # ============================================================
+      # 3. Fix Bitmap API
+      # ============================================================
 
       - name: Fix Bitmap API
         run: |
@@ -33,6 +48,14 @@ jobs:
             's/Bitmap.createBitmap(data, 2, w, h, Bitmap.Config.ARGB_8888)/Bitmap.createBitmap(data, 2, w, w, h, Bitmap.Config.ARGB_8888)/' \
             project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
 
+          echo "===== BITMAP API CHECK ====="
+          grep -n "createBitmap" \
+            project/app/src/main/java/com/soulcardmaster4/port/MainActivity.java
+
+
+      # ============================================================
+      # 4. Fetch official 7-Zip LZMA SDK
+      # ============================================================
 
       - name: Fetch official 7-Zip LZMA SDK
         run: |
@@ -48,69 +71,23 @@ jobs:
           rm -rf /tmp/lzma2603-sdk
           mkdir -p /tmp/lzma2603-sdk
 
-          7z x -y \
+          7z x \
+            -y \
             -o/tmp/lzma2603-sdk \
             /tmp/lzma2603.7z >/dev/null
 
-          for f in LzmaDec.c LzmaDec.h 7zTypes.h Precomp.h Compiler.h; do
+          for f in \
+            LzmaDec.c \
+            LzmaDec.h \
+            7zTypes.h \
+            Precomp.h \
+            Compiler.h
+          do
             test -f "/tmp/lzma2603-sdk/C/$f"
+
             cp \
               "/tmp/lzma2603-sdk/C/$f" \
               "project/third_party/lzma/$f"
           done
 
-          echo "===== LZMA SDK FILES ====="
-          ls -lh project/third_party/lzma
-
-
-      - name: Fix Full Native Sources
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          root = Path("project/app/src/main/cpp")
-
-          # ============================================================
-          # LZMA allocator callback 수정
-          # ============================================================
-
-          p = root / "scm_lzma_backend.cpp"
-          s = p.read_text()
-
-          print("===== BEFORE LZMA ALLOCATOR =====")
-
-          for line in s.splitlines():
-              if (
-                  "SzAlloc" in line
-                  or "SzFree" in line
-                  or "g_Alloc" in line
-              ):
-                  print(line)
-
-          # 7-Zip SDK의 ISzAlloc 인터페이스에 맞게 수정
-
-          s, n1 = re.subn(
-              r'\bvoid\s*\*\s*SzAlloc\s*\(\s*void\s*\*',
-              'void *SzAlloc(ISzAllocPtr',
-              s,
-              count=1
-          )
-
-          s, n2 = re.subn(
-              r'\bvoid\s+SzFree\s*\(\s*void\s*\*',
-              'void SzFree(ISzAllocPtr',
-              s,
-              count=1
-          )
-
-          # named parameter 형태 대응
-          if n1 == 0:
-              s, n1 = re.subn(
-                  r'\bvoid\s*\*\s+SzAlloc\s*\(\s*void\s*\*\s*[A-Za-z_]\w*',
-                  'void *SzAlloc(ISzAllocPtr',
-                  s,
-                  count=1
-              )
-
-          if
+          echo "===== LZMA
