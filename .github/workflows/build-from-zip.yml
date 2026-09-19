@@ -23,7 +23,7 @@ jobs:
       - name: Extract v41
         run: |
           rm -rf project
-          mkdir project
+          mkdir -p project
           unzip -q SoulCardMaster4_arm64_port_v41.zip -d project
 
 
@@ -59,4 +59,111 @@ jobs:
               "project/third_party/lzma/$f"
           done
 
-          echo "LZMA
+          echo "===== LZMA SDK FILES ====="
+          ls -lh project/third_party/lzma
+
+
+      - name: Fix Full Native Sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("project/app/src/main/cpp")
+
+          # ------------------------------------------------------------
+          # Fix scm_lzma_backend.cpp
+          #
+          # Actual source from v41:
+          #
+          # void *SzAlloc(void *, size_t size)
+          # void SzFree(void *, void *address)
+          #
+          # Official 7-Zip ISzAlloc requires:
+          #
+          # void *(*Alloc)(ISzAllocPtr, size_t)
+          # void (*Free)(ISzAllocPtr, void *)
+          # ------------------------------------------------------------
+
+          p = root / "scm_lzma_backend.cpp"
+          s = p.read_text()
+
+          print("===== BEFORE LZMA ALLOCATOR =====")
+          for line in s.splitlines():
+              if "SzAlloc" in line or "SzFree" in line or "g_Alloc" in line:
+                  print(line)
+
+          # Handle unnamed first parameter.
+          s, n1 = re.subn(
+              r'\bvoid\s*\*\s*SzAlloc\s*\(\s*void\s*\*',
+              'void *SzAlloc(ISzAllocPtr',
+              s,
+              count=1
+          )
+
+          s, n2 = re.subn(
+              r'\bvoid\s+SzFree\s*\(\s*void\s*\*',
+              'void SzFree(ISzAllocPtr',
+              s,
+              count=1
+          )
+
+          # Also handle named-parameter variants just in case.
+          if n1 == 0:
+              s, n1 = re.subn(
+                  r'\bvoid\s*\*\s+SzAlloc\s*\(\s*void\s*\*\s*[A-Za-z_]\w*',
+                  'void *SzAlloc(ISzAllocPtr',
+                  s,
+                  count=1
+              )
+
+          if n2 == 0:
+              s, n2 = re.subn(
+                  r'\bvoid\s+SzFree\s*\(\s*void\s*\*\s*[A-Za-z_]\w*',
+                  'void SzFree(ISzAllocPtr',
+                  s,
+                  count=1
+              )
+
+          if n1 != 1:
+              raise SystemExit(
+                  "ERROR: SzAlloc signature was not patched"
+              )
+
+          if n2 != 1:
+              raise SystemExit(
+                  "ERROR: SzFree signature was not patched"
+              )
+
+          p.write_text(s)
+
+          print("===== AFTER LZMA ALLOCATOR =====")
+          for line in s.splitlines():
+              if "SzAlloc" in line or "SzFree" in line or "g_Alloc" in line:
+                  print(line)
+
+          # ------------------------------------------------------------
+          # Fix native_bridge.cpp duplicate std::string err declaration.
+          # Keep the first declaration and remove later duplicates.
+          # ------------------------------------------------------------
+
+          p = root / "native_bridge.cpp"
+          s = p.read_text()
+
+          lines = s.splitlines(True)
+          seen = 0
+          out = []
+
+          for line in lines:
+              if line.strip() == "std::string err;":
+                  seen += 1
+                  if seen > 1:
+                      continue
+              out.append(line)
+
+          p.write_text("".join(out))
+
+          print("===== native_bridge.cpp err declarations =====")
+          for i, line in enumerate(out, 1):
+              if "std::string err;" in line:
+                  print(f"{i}: {line
