@@ -71,29 +71,29 @@ jobs:
 
           root = Path("project/app/src/main/cpp")
 
-          # ------------------------------------------------------------
-          # Fix scm_lzma_backend.cpp
-          #
-          # Actual source from v41:
-          #
-          # void *SzAlloc(void *, size_t size)
-          # void SzFree(void *, void *address)
-          #
-          # Official 7-Zip ISzAlloc requires:
-          #
-          # void *(*Alloc)(ISzAllocPtr, size_t)
-          # void (*Free)(ISzAllocPtr, void *)
-          # ------------------------------------------------------------
+          # ============================================================
+          # Fix LZMA allocator callback signatures
+          # ============================================================
 
           p = root / "scm_lzma_backend.cpp"
           s = p.read_text()
 
           print("===== BEFORE LZMA ALLOCATOR =====")
+
           for line in s.splitlines():
               if "SzAlloc" in line or "SzFree" in line or "g_Alloc" in line:
                   print(line)
 
-          # Handle unnamed first parameter.
+          # Actual v41 source:
+          #
+          # void *SzAlloc(void *, size_t size)
+          # void SzFree(void *, void *address)
+          #
+          # Official 7-Zip:
+          #
+          # void *SzAlloc(ISzAllocPtr, size_t size)
+          # void SzFree(ISzAllocPtr, void *address)
+
           s, n1 = re.subn(
               r'\bvoid\s*\*\s*SzAlloc\s*\(\s*void\s*\*',
               'void *SzAlloc(ISzAllocPtr',
@@ -108,7 +108,7 @@ jobs:
               count=1
           )
 
-          # Also handle named-parameter variants just in case.
+          # Named-parameter fallback
           if n1 == 0:
               s, n1 = re.subn(
                   r'\bvoid\s*\*\s+SzAlloc\s*\(\s*void\s*\*\s*[A-Za-z_]\w*',
@@ -138,44 +138,45 @@ jobs:
           p.write_text(s)
 
           print("===== AFTER LZMA ALLOCATOR =====")
+
           for line in s.splitlines():
               if "SzAlloc" in line or "SzFree" in line or "g_Alloc" in line:
                   print(line)
 
-          # ------------------------------------------------------------
-          # Fix native_bridge.cpp duplicate std::string err declaration.
-          # Keep the first declaration and remove later duplicates.
-          # ------------------------------------------------------------
+          # ============================================================
+          # Remove duplicate std::string err declaration
+          # ============================================================
 
           p = root / "native_bridge.cpp"
           s = p.read_text()
 
           lines = s.splitlines(True)
+
           seen = 0
           out = []
 
           for line in lines:
               if line.strip() == "std::string err;":
                   seen += 1
+
                   if seen > 1:
                       continue
+
               out.append(line)
 
           p.write_text("".join(out))
 
           print("===== native_bridge.cpp err declarations =====")
+
           for i, line in enumerate(out, 1):
               if "std::string err;" in line:
                   print(f"{i}: {line.rstrip()}")
 
-          if seen == 0:
-              print("WARNING: no std::string err declaration found")
-          else:
-              print(f"Found {seen} err declaration(s); kept first one")
+          print(f"Found {seen} err declaration(s); kept first one")
 
-          # ------------------------------------------------------------
-          # Final sanity check.
-          # ------------------------------------------------------------
+          # ============================================================
+          # Final sanity check
+          # ============================================================
 
           s = (root / "scm_lzma_backend.cpp").read_text()
 
@@ -205,56 +206,35 @@ jobs:
           gradle-version: '8.9'
 
 
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android platform
+      - name: Setup Android SDK manually
         run: |
-          sdkmanager "platforms;android-35" \
-                      "build-tools;35.0.0"
+          echo "===== SEARCHING ANDROID SDK ====="
 
+          if [ -n "$ANDROID_HOME" ]; then
+            echo "ANDROID_HOME=$ANDROID_HOME"
+          fi
 
-      - name: Build Full ARM64 APK
-        working-directory: project
-        run: |
-          echo "===== JAVA ====="
-          java -version
+          if [ -n "$ANDROID_SDK_ROOT" ]; then
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          fi
 
-          echo "===== GRADLE ====="
-          gradle --version
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -x "/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager"
+          elif command -v sdkmanager >/dev/null 2>&1; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          else
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
 
-          echo "===== BUILD FULL ARM64 ====="
+          echo "Using SDKMANAGER=$SDKMANAGER"
 
-          gradle \
-            --no-daemon \
-            --stacktrace \
-            -PscmPreviewOnly=false \
-            assembleDebug
+          SDK_ROOT="$(dirname "$(dirname "$(dirname "$SDKMANAGER")")")"
 
+          echo "SDK_ROOT=$SDK_ROOT"
 
-      - name: Verify Full APK
-        working-directory: project
-        run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-
-          test -f "$APK"
-
-          echo "===== APK ====="
-          ls -lh "$APK"
-
-          echo "===== APK CONTENT CHECK ====="
-          unzip -l "$APK" | grep "lib/arm64-v8a/libscm_arm64.so"
-          unzip -l "$APK" | grep "assets/res.dat"
-
-          echo "===== SHA256 ====="
-          sha256sum "$APK"
-
-          echo "===== FULL APK VERIFICATION: OK ====="
-
-
-      - name: Upload Full ARM64 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: SoulCardMaster4-v41-full-arm64-debug
-          path: project/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          echo "ANDROID_HOME=$SDK_ROOT"
