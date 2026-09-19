@@ -216,4 +216,118 @@ jobs:
 
 
       - name: Setup Gradle
-        uses: grad
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+
+      - name: Setup Android SDK manually
+        run: |
+          echo "===== SEARCHING ANDROID SDK ====="
+
+          if [ -n "$ANDROID_HOME" ]; then
+            echo "ANDROID_HOME=$ANDROID_HOME"
+          fi
+
+          if [ -n "$ANDROID_SDK_ROOT" ]; then
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          fi
+
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          elif [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
+          elif [ -x "/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager"
+
+          elif command -v sdkmanager >/dev/null 2>&1; then
+            SDKMANAGER="$(command -v sdkmanager)"
+
+          else
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
+
+          echo "Using SDKMANAGER=$SDKMANAGER"
+
+          SDK_ROOT="$(dirname "$(dirname "$(dirname "$SDKMANAGER")")")"
+
+          echo "SDK_ROOT=$SDK_ROOT"
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo "===== ANDROID SDK READY ====="
+
+          "$SDKMANAGER" --list_installed || true
+
+
+      - name: Build Full ARM64 APK
+        working-directory: project
+        run: |
+          echo "===== JAVA ====="
+          java -version
+
+          echo "===== GRADLE ====="
+          gradle --version
+
+          echo "===== ANDROID SDK ====="
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          echo "===== BUILD FULL ARM64 ====="
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            -PscmPreviewOnly=false \
+            assembleDebug
+
+
+      - name: Verify Full APK
+        working-directory: project
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          echo "===== CHECK APK ====="
+
+          test -f "$APK"
+
+          echo "===== APK FOUND ====="
+          ls -lh "$APK"
+
+          echo "===== CHECK ARM64 NATIVE LIBRARY ====="
+
+          unzip -l "$APK" | grep \
+            "lib/arm64-v8a/libscm_arm64.so"
+
+          echo "===== CHECK RES.DAT ====="
+
+          unzip -l "$APK" | grep \
+            "assets/res.dat"
+
+          echo "===== APK SHA256 ====="
+
+          sha256sum "$APK"
+
+          echo "===== FULL APK VERIFICATION: OK ====="
+
+
+      - name: Upload Full ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SoulCardMaster4-v41-full-arm64-debug
+          path: project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
